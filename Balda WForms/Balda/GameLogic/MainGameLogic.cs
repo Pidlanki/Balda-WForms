@@ -5,14 +5,13 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Balda.GameLogic;
 
 namespace Balda {
 	[Serializable]
 	public class MainGameLogic {
-		protected (int PlPoints, List<string> PlWords) firstPlayer;
-		protected (int PlPoints, List<string> PlWords) secondPlayer;
-		public (int PlPoints, List<string> PlWords) FirstPlayer => firstPlayer;
-		public (int PlPoints, List<string> PlWords) SecondPlayer => secondPlayer;
+		protected Player[] players;
+		public Player[] Players => players;
 		public readonly int ROW = 5;//variables are responsible for the size of the field
 		public readonly int COL = 5;
 		protected  Random random = new Random();
@@ -21,21 +20,26 @@ namespace Balda {
 			get => field;
 			private set => field = value;
 		}
-
+		[NonSerialized]
 		protected Dictionary<char, List<string>> Library;
+		
 		protected string f_word;
 		/// <summary>
 		/// A word that is composed at the moment
 		/// </summary>
 		[NonSerialized]
 		public string currentWord;
-		readonly string wordsFileName = @"D:\Users\pidla\source\repos\Balda-WForms\Balda WForms\Balda\WordsLibrary\words.txt";
+		readonly string wordsFileName = @".\WordsLibrary\words.txt";
+		[NonSerialized]
 		/// <summary>
 		/// list of current moves that makes in the turn
 		/// </summary>
 		public List<Point> moves;
 
 		protected int step_count = 0;//counter moves
+
+		public int StepCount => step_count % 2;
+
 		/// <summary>
 		/// coordinates of active table cell
 		/// </summary>
@@ -47,24 +51,26 @@ namespace Balda {
 		[NonSerialized]
 		public Point inputCell;
 
-		public bool isFirstCell { get; set; }
+		//public bool isFirstCell { get; set; }
 		public bool isNewLetUsed { get; set; }
 
 		/// <summary>
 		/// adjacency matrix
 		/// </summary>
 		[NonSerialized]
-		private char[,] matrix;
+		protected char[,] matrix;
 
 		public char[,] Matrix {
 			get => matrix;
 		}
+
 		public MainGameLogic() {
+		}
+		public MainGameLogic(string fPName, string sPName) {
 			Field = new char[ROW, COL];
 			matrix = new char[ROW, COL];
 			moves = new List<Point>();
-			firstPlayer.PlWords = new List<string>();
-			secondPlayer.PlWords = new List<string>();
+			players = new[] { new Player(fPName), new Player(sPName) };
 			LoadWords();
 			RandomFirstWordInit();
 			FormingFirstMoveMatrix();
@@ -96,21 +102,7 @@ namespace Balda {
 			return false;
 		}
 
-		/// <summary>
-		/// Main process of the game
-		/// </summary>
-		protected virtual bool Game() {
-			RandomFirstWordInit();
-			//SerializeGame serializer = new SerializeGame();
 
-			currentWord = "";
-			step_count++;
-
-			//var isEndMoving = Moving();
-			//if (isEndMoving) CountingPoints();
-			//serializer.SerializePVP(this);
-			return CheckingFreePlaces();
-		}
 		/// <summary>
 		/// initialize and putted a first word of the game
 		/// </summary>
@@ -138,16 +130,16 @@ namespace Balda {
 		}
 		public void UpdateLogicState(Point curClickPos, char newLetter) {
 			activeCell = new Point(curClickPos.X, curClickPos.Y);
+			Field[curClickPos.X, curClickPos.Y] = newLetter;
 			currentWord += field[curClickPos.X, curClickPos.Y];
 			moves.Add(new Point(curClickPos.X, curClickPos.Y));
 			inputCell = new Point(curClickPos.X, curClickPos.Y);
 			isNewLetUsed = true;
-			Field[curClickPos.X, curClickPos.Y] = newLetter;
 			FormingMatrixOfPossibleMove();
 		}
-		protected int CheckForWinner() {
-			if (FirstPlayer.PlPoints == SecondPlayer.PlPoints) return 0;
-			return FirstPlayer.PlPoints < SecondPlayer.PlPoints ? 2 : 1;
+		public int CheckForWinner() {
+			if (Players[0].PlPoints == Players[1].PlPoints) return 2;
+			return Players[0].PlPoints < Players[1].PlPoints ? 1 : 0;
 		}
 
 		public string CheckLastLetNeighbors(int _x, int _y) {
@@ -235,7 +227,7 @@ namespace Balda {
 			if (moves.Contains(coordinates)) {
 				var ind = moves.IndexOf(coordinates);
 				currentWord = currentWord.Remove(ind);
-				if (isNewLetUsed && moves.IndexOf(inputCell) > ind) {
+				if (isNewLetUsed && moves.IndexOf(inputCell) >= ind) {
 					field[inputCell.X, inputCell.Y] = '\0';
 					isNewLetUsed = false;
 					inputCell = new Point();
@@ -258,48 +250,37 @@ namespace Balda {
 		/// <param name="_x">coordinate x</param>
 		/// <param name="_y">coordinate y</param>
 		/// <returns>true if next move not first in the turn</returns>
-		public bool CheckPastPos(int _x, int _y) {
+		protected bool CheckPastPos(int _x, int _y) {
 			return moves.Count != 0 && moves.Any(t => t.X == _x && t.Y == _y);
 		}
 
-		/// <summary>
-		/// Process of movement on the table
-		/// </summary>
-		/// <returns>true if turn ended corectly</returns>
-		//	protected bool Moving(int _x, int _y) {
+		public virtual int EndOfTurn() {
+			if (Players[0].PlWords.Contains(currentWord) || Players[1].PlWords.Contains(currentWord) || currentWord == f_word) {
+				return 1;
+			}
+			if (!Library[currentWord[0]].Contains(currentWord)) {
+				return 2;
+			}
+			players[StepCount].AddWord(currentWord);
+			CleanParams();
+			if (!CheckingFreePlaces()) return 3;
+			FormingFirstMoveMatrix();
+			return 0;
+		}
 
-		//		isFirstCell = false;
-		//		isNewLetUsed = false;
+		protected virtual void CleanParams() {
+			moves.Clear();
+			isNewLetUsed = false;
+			currentWord = "";
+			inputCell = Point.Empty;
+			step_count++;
+		}
 
-		//		//чи не занята клітинка
-		//		if (isFirstCell) {
-		//			isNewLetUsed = EnterFirstLetter();
-		//			isFirstCell = true;
-		//		}
-		//		else if (MakeMove(_x, _y)) {
-		//			isFirstCell = true;
-		//			x = _x;
-		//			y = _y;
-		//		}
+		public void SkipMove() {
+			CleanParams();
+			FormingFirstMoveMatrix();
+		}
 
-
-
-		//	}
-
-		//}
-
-		//public bool EndTurnPress() {
-		//	if (EndTurn(ref isNewLatUsed)) {
-		//		count = 0;
-		//		moves = new List<int>();
-		//		return true;
-		//	}
-		//	else {
-		//		count = 0;
-		//		moves = new List<int>();
-		//		step_count--;
-		//		return false;
-		//	}
 	}
 
 }
